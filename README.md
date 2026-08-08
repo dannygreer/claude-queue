@@ -18,6 +18,12 @@ The point is to stay in flow. You keep firing ideas at Claude instead of babysit
 
 ---
 
+## How this differs from Claude Code's native Tasks
+
+Claude Code added a native Tasks system in early 2026, and it persists across sessions too, so persistence is not the difference. Native Tasks is the model's own state store. Claude Queue is the layer you look at: the queue is a plain `queue.md` in your repo that you can read and edit, the live tracker (`qw`) gives you a second-pane view of what's active, queued, blocked, and done, and every finished task leaves a plain-English `Shipped` / `Verified` note you can read back or export. If you just want the agent to remember its own state, native Tasks covers that. This is for when you want to watch the work and keep a readable record of what actually shipped.
+
+---
+
 ## What it does
 
 - **`/queue` activates queue mode.** Claude works the list top-to-bottom, one task at a time, and doesn't stop until everything is done or explicitly blocked.
