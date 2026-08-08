@@ -79,7 +79,7 @@ taskwatch --doctor      # or: ~/.claude/bin/taskwatch --doctor
 
 ## Usage
 
-In any project, start a session and run:
+In any project, start a session and run `/queue` followed by the work you want done:
 
 ```
 /queue add the login bug, then the export feature, then update the changelog
