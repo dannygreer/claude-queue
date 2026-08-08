@@ -1,4 +1,4 @@
 __pycache__/
 *.pyc
-.claude/taskwatch/
-TASKS.md
+.claude/queue/
+queue.md
