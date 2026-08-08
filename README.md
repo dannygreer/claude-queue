@@ -4,7 +4,7 @@ A persistent `queue.md` work queue for [Claude Code](https://claude.com/claude-c
 
 > Standard-library Python. No accounts, no services, no dependencies. Your queue is a plain `queue.md` file in your project.
 
-![The Claude Queue tracker: active task with a progress bar, blocked, queued, and completed sections](docs/queue-overview.png)
+![The Claude Queue tracker: active task with a progress bar, blocked, queued, and completed sections](docs/queue-overview-v2.png)
 
 ---
 
@@ -27,7 +27,7 @@ The point is to stay in flow. You keep firing ideas at Claude instead of babysit
 - **Live tracker.** A curses TUI: active / queued / blocked / done, priority badges, search, filter, and per-task detail.
 - **Crash-safe.** State is atomic and flock-protected, with an append-only event log it can rebuild from if anything gets corrupted.
 
-![A completed task expanded to show its plain-English Shipped and Verified record](docs/completion-record.png)
+![A completed task expanded to show its plain-English Shipped and Verified record](docs/completion-record-v2.png)
 
 ## The tracker
 
