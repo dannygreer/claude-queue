@@ -71,7 +71,7 @@ taskwatch --doctor      # or: ~/.claude/bin/taskwatch --doctor
 
 ### Requirements
 
-- [Claude Code](https://claude.com/claude-code)
+- [Claude Code](https://claude.com/claude-code) running in a terminal (the CLI). The tracker is a terminal program you run in a second pane, so this is built for CLI use, not the Claude Code desktop or web app.
 - Python 3.9+ (standard library only, nothing to `pip install`)
 - macOS or Linux (uses `fcntl` file locking)
 
