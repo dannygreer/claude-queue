@@ -1,0 +1,769 @@
+#!/usr/bin/env python3
+"""
+taskwatch v2 — interactive terminal tracker for a TASKS.md queue.
+
+Usage:
+    taskwatch TASKS.md            interactive curses TUI
+    taskwatch TASKS.md --once     plain-text snapshot (for tests/logs)
+    taskwatch TASKS.md --json     JSON snapshot
+    taskwatch TASKS.md --export   Markdown completion log, newest first
+    taskwatch TASKS.md --doctor   installation & queue health checks
+
+Keys: j/k or arrows move · Enter/Space/e expand · t technical details ·
+/ search · f filter · a archive · c copy summary · r reload · ? help · q quit
+
+Standard library only. State lives in .claude/taskwatch/ next to TASKS.md.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+QL_DIR = Path.home() / ".claude" / "skills" / "queue" / "scripts"
+sys.path.insert(0, str(QL_DIR))
+try:
+    import queue_lib as ql
+except ImportError:  # pragma: no cover
+    sys.stderr.write("taskwatch: queue_lib not found at %s\n" % QL_DIR)
+    sys.exit(2)
+
+INDET_FRAMES = 24
+FILTERS = ["all", "active", "queued", "completed", "blocked"]
+STATUS_LABEL = {"active": "ACTIVE", "queued": "QUEUED", "completed": "DONE",
+                "blocked": "BLOCKED", "interrupted": "STALE / POSSIBLY INTERRUPTED"}
+
+
+# ─── formatting helpers ──────────────────────────────────────────────────────
+
+def local_dt(iso: str | None) -> datetime | None:
+    if not iso:
+        return None
+    try:
+        return datetime.fromisoformat(iso).astimezone()
+    except ValueError:
+        return None
+
+
+def fmt_clock(iso: str | None) -> str:
+    dt = local_dt(iso)
+    if not dt:
+        return "—"
+    if dt.date() == datetime.now().astimezone().date():
+        return dt.strftime("%-I:%M %p")
+    return dt.strftime("%b %-d, %-I:%M %p")
+
+
+def fmt_full(iso: str | None) -> str:
+    dt = local_dt(iso)
+    return dt.strftime("%b %-d, %Y at %-I:%M %p") if dt else "—"
+
+
+def fmt_dur(start_iso: str | None, end_iso: str | None) -> str:
+    a, b = local_dt(start_iso), local_dt(end_iso)
+    if not a or not b:
+        return ""
+    secs = max(0, int((b - a).total_seconds()))
+    if secs < 90:
+        return f"{secs}s"
+    mins = secs // 60
+    if mins < 90:
+        return f"{mins}m"
+    return f"{mins // 60}h {mins % 60}m"
+
+
+def elapsed_since(iso: str | None) -> str:
+    dt = local_dt(iso)
+    if not dt:
+        return ""
+    return fmt_dur(iso, datetime.now(timezone.utc).isoformat())
+
+
+def tilde(p: Path) -> str:
+    """Abbreviate $HOME as ~ for display."""
+    try:
+        return "~/" + str(p.resolve().relative_to(Path.home().resolve()))
+    except ValueError:
+        return str(p)
+
+
+def project_header_lines(tasks_file: Path) -> list[str]:
+    return [f" Project: {tilde(tasks_file.parent)}",
+            f" Queue:   {tilde(tasks_file)}"]
+
+
+WAITING_NOTE = "Waiting for this project's TASKS.md — run /queue in Claude to create it."
+
+
+def ellipsize(text: str, width: int) -> str:
+    if width <= 1:
+        return ""
+    return text if len(text) <= width else text[: width - 1] + "…"
+
+
+def wrap(text: str, width: int) -> list[str]:
+    out: list[str] = []
+    for para in text.split("\n"):
+        words = para.split()
+        if not words:
+            out.append("")
+            continue
+        line = words[0]
+        for w in words[1:]:
+            if len(line) + 1 + len(w) <= width:
+                line += " " + w
+            else:
+                out.append(line)
+                line = w
+        out.append(line)
+    return out
+
+
+# ─── snapshot loading ────────────────────────────────────────────────────────
+
+def load_snapshot(tasks_file: Path, write: bool = True) -> dict:
+    project = tasks_file.parent
+    tasks, st, warnings = ql.refresh(project, tasks_file, write=write)
+    snap = ql.build_snapshot(project, tasks, st, warnings)
+    snap["phase"] = st.get("meta", {}).get("phase", "PLANNING")
+    snap["hook_health"] = _recent_hook_errors(project)
+    return snap
+
+
+def _recent_hook_errors(project: Path) -> int:
+    cutoff = time.time() - 6 * 3600
+    n = 0
+    for ev in ql.read_events(project)[-200:]:
+        if ev.get("event") != "hook_error":
+            continue
+        dt = local_dt(ev.get("ts"))
+        if dt and dt.timestamp() > cutoff:
+            n += 1
+    return n
+
+
+# ─── flat row model (shared by TUI and --once) ──────────────────────────────
+
+def flat_rows(snap: dict, show_archive: bool, filt: str, query: str) -> list[dict]:
+    """[{kind: header|task|gap, ...}] in display order."""
+    def match(m):
+        if filt != "all" and not (
+                (filt == "active" and m["status"] in ("active", "interrupted")) or
+                (filt == "blocked" and m["status"] in ("blocked", "interrupted")) or
+                m["status"] == filt):
+            return False
+        if query:
+            hay = (m["title"] + " " + (m.get("summary") or "")).lower()
+            return query.lower() in hay
+        return True
+
+    rows: list[dict] = []
+
+    def section(name, items, extra=""):
+        items = [m for m in items if match(m)]
+        if not items:
+            return
+        rows.append({"kind": "header", "text": name + extra})
+        for m in items:
+            rows.append({"kind": "task", "task": m})
+        rows.append({"kind": "gap"})
+
+    section("ACTIVE", snap["active"])
+    section("BLOCKED / STALE", snap["blocked"])
+    section("QUEUED", snap["queued"])
+    section("COMPLETED", snap["completed"])
+    if snap["archived"]:
+        if show_archive:
+            section("ARCHIVED (older than 30 days)", snap["archived"])
+        else:
+            rows.append({"kind": "header",
+                         "text": f"ARCHIVED  {len(snap['archived'])} older completions · press 'a'"})
+            rows.append({"kind": "gap"})
+    while rows and rows[-1]["kind"] == "gap":
+        rows.pop()
+    return rows
+
+
+def right_meta(m: dict) -> str:
+    s = m["status"]
+    if s == "active":
+        phase_bits = []
+        if m.get("last_activity"):
+            phase_bits.append(m["last_activity"])
+        el = elapsed_since(m.get("started_at"))
+        if el:
+            phase_bits.append(el)
+        return " · ".join(phase_bits)
+    if s == "interrupted":
+        return "STALE · possibly interrupted · " + (elapsed_since(m.get("updated_at")) or "")
+    if s == "blocked":
+        return (m.get("blocked_note") or "blocked")[:48]
+    if s == "queued":
+        out = "added " + fmt_clock(m.get("created_at"))
+        if m.get("new"):
+            out += " · NEW"
+        return out
+    if s == "completed":
+        out = fmt_clock(m.get("completed_at"))
+        dur = fmt_dur(m.get("started_at"), m.get("completed_at"))
+        if dur:
+            out += f" · {dur}"
+        return out
+    return ""
+
+
+def badges(m: dict) -> str:
+    b = []
+    if m["priority"] == "urgent":
+        b.append("[URGENT]")
+    elif m["priority"] == "high":
+        b.append("[HIGH]")
+    return (" ".join(b) + " ") if b else ""
+
+
+def progress_cell(m: dict, tick: int, width: int = 22) -> str:
+    if m["status"] != "active":
+        return ""
+    if m["determinate"]:
+        total, done = m["subs_total"], m["subs_done"]
+        fill = int(width * done / total) if total else 0
+        return f"[{'█' * fill}{'░' * (width - fill)}] {done}/{total}"
+    pos = tick % INDET_FRAMES
+    cells = ["░"] * width
+    for off in range(4):
+        idx = (pos * width // INDET_FRAMES + off) % width
+        cells[idx] = "█"
+    return "[" + "".join(cells) + "]"
+
+
+# ─── --once / --json / --export / --doctor ──────────────────────────────────
+
+def render_once(snap: dict, tasks_file: Path, width: int = 100) -> str:
+    c = snap["counts"]
+    out = project_header_lines(tasks_file)
+    out.append("")
+    out.append(f" QUEUE   {c['active']} active · {c['queued']} queued · "
+               f"{c['blocked']} blocked · {c['completed']} done · {c['untriaged']} untriaged")
+    if snap["untriaged"]:
+        out.append(" ⚠ UNTRIAGED PROMPTS: " +
+                   ", ".join(p["prompt_id"] for p in snap["untriaged"]))
+    for w in snap["warnings"]:
+        out.append(f" ⚠ {w}")
+    if snap.get("hook_health"):
+        out.append(f" ⚠ {snap['hook_health']} hook error(s) in the last 6h — see events.jsonl")
+    out.append("")
+    for row in flat_rows(snap, show_archive=False, filt="all", query=""):
+        if row["kind"] == "header":
+            out.append(" " + row["text"])
+        elif row["kind"] == "gap":
+            out.append("")
+        else:
+            m = row["task"]
+            mark = {"active": "▸", "completed": ">", "blocked": "✗",
+                    "interrupted": "!", "queued": " "}.get(m["status"], " ")
+            left = f" {mark} {badges(m)}{m['title']}"
+            right = right_meta(m)
+            pad = max(2, width - len(left) - len(right))
+            out.append(ellipsize(left, width - len(right) - 2) + " " * pad + right)
+            if m["status"] == "active":
+                prog = progress_cell(m, 0)
+                if prog:
+                    out.append("   " + prog)
+    return "\n".join(out).rstrip() + "\n"
+
+
+def render_export(snap: dict) -> str:
+    out = ["# Completed work log", ""]
+    for m in snap["completed"] + snap["archived"]:
+        out.append(f"## {m['title']}")
+        out.append(f"*Completed {fmt_full(m.get('completed_at'))}"
+                   + (f" · Duration {fmt_dur(m.get('started_at'), m.get('completed_at'))}"
+                      if m.get("started_at") else "") + "*")
+        out.append("")
+        out.append(m.get("summary") or "_No summary recorded._")
+        if m.get("verification"):
+            out.append("")
+            out.append(f"**Verified:** {m['verification']}")
+        out.append("")
+    return "\n".join(out).rstrip() + "\n"
+
+
+def run_doctor(tasks_file: Path) -> int:
+    project = tasks_file.parent
+    for line in project_header_lines(tasks_file):
+        print(line)
+    print()
+    ok = True
+
+    def check(label: str, passed: bool, detail: str = ""):
+        nonlocal ok
+        ok = ok and passed
+        print(f" {'✓' if passed else '✗'} {label}" + (f" — {detail}" if detail else ""))
+
+    skill = Path.home() / ".claude" / "skills" / "queue"
+    check("skill files present", (skill / "SKILL.md").exists()
+          and (skill / "scripts" / "check_queue.py").exists()
+          and (skill / "scripts" / "prompt_capture.py").exists()
+          and (skill / "scripts" / "activity.py").exists()
+          and (skill / "scripts" / "ack_prompt.py").exists())
+    import py_compile
+    syntax_ok, bad = True, ""
+    for f in list((skill / "scripts").glob("*.py")) + [Path(__file__)]:
+        try:
+            py_compile.compile(str(f), doraise=True)
+        except Exception as exc:
+            syntax_ok, bad = False, f"{f.name}: {exc}"
+    check("python syntax", syntax_ok, bad)
+    sd = ql.state_dir(project)
+    try:
+        ql.ensure_state_dir(project)
+        probe = sd / ".probe"
+        probe.write_text("ok")
+        probe.unlink()
+        check("state directory writable", True, str(sd))
+    except OSError as exc:
+        check("state directory writable", False, str(exc))
+    if tasks_file.exists():
+        tasks, warnings = ql.parse_tasks_md(tasks_file.read_text(encoding="utf-8", errors="replace"))
+        check("TASKS.md parses", True, f"{len(tasks)} tasks")
+        check("no malformed lines", not warnings, "; ".join(warnings[:3]))
+        ids = [t["id"] for t in tasks if t["id"]]
+        check("no duplicate ids", len(ids) == len(set(ids)))
+        st = ql.load_state(project)
+        stale = [r["title"] for r in st["tasks"].values() if r.get("status") == "interrupted"]
+        check("no stale active task", not stale, "; ".join(stale[:3]))
+        unacked = ql.unacked_prompts(st)
+        check("no unacknowledged prompts", not unacked,
+              ", ".join(pid for pid, _ in unacked[:5]))
+    else:
+        check("TASKS.md exists", False, str(tasks_file))
+    print("\n" + ("all checks passed" if ok else "problems found"))
+    return 0 if ok else 1
+
+
+# ─── interactive TUI ─────────────────────────────────────────────────────────
+
+def tui(stdscr, tasks_file: Path):
+    import curses
+    curses.curs_set(0)
+    stdscr.timeout(400)
+    curses.use_default_colors()
+    for i, fg in enumerate([curses.COLOR_CYAN, curses.COLOR_GREEN, curses.COLOR_YELLOW,
+                            curses.COLOR_RED, curses.COLOR_MAGENTA], start=1):
+        curses.init_pair(i, fg, -1)
+    C_ACTIVE, C_DONE, C_WARN, C_BAD, C_ACCENT = 1, 2, 3, 4, 5
+
+    project = tasks_file.parent
+    snap = load_snapshot(tasks_file) if tasks_file.exists() else None
+    expanded: set[str] = set()
+    tech: set[str] = set()
+    sel = 0
+    scroll = 0
+    filt_i = 0
+    query = ""
+    searching = False
+    show_archive = False
+    show_help = False
+    flash = ""
+    flash_until = 0.0
+    tick = 0
+    last_load = time.time()
+    last_mtime = 0.0
+    err_note = ""
+
+    def reload(force=False):
+        nonlocal snap, last_load, last_mtime, err_note
+        try:
+            m = max((p.stat().st_mtime for p in
+                     [tasks_file, ql.state_path(project)] if p.exists()), default=0)
+        except OSError:
+            m = 0
+        if force or m != last_mtime or time.time() - last_load > 5:
+            try:
+                snap = load_snapshot(tasks_file)
+                err_note = ""
+            except Exception as exc:
+                err_note = f"reload failed: {type(exc).__name__}"
+                try:
+                    ql.append_event(project, "hook_error", detail=f"taskwatch reload: {exc}")
+                except Exception:
+                    pass
+            last_mtime, last_load = m, time.time()
+
+    while True:
+        tick += 1
+
+        # Bound-project wait mode: the queue file is fixed for the life of
+        # this process. If it does not exist (yet, or was deleted), show a
+        # waiting screen for THIS project — never fall back to another one.
+        if not tasks_file.exists():
+            snap = None
+            h, w = stdscr.getmaxyx()
+            stdscr.erase()
+            hdr = project_header_lines(tasks_file)
+            spinner = "◐◓◑◒"[tick % 4]
+            body = hdr + ["", f" {spinner} {WAITING_NOTE}", "", " q quit"]
+            for i, line in enumerate(body):
+                attr = curses.A_BOLD if i < len(hdr) else curses.A_DIM
+                try:
+                    stdscr.addnstr(i, 0, line, w - 1, attr)
+                except curses.error:
+                    pass
+            stdscr.refresh()
+            try:
+                ch = stdscr.getch()
+            except KeyboardInterrupt:
+                return
+            if ch in (ord("q"), 27):
+                return
+            continue
+        if snap is None:  # file just appeared — attach to it now
+            reload(force=True)
+            if snap is None:  # exists but unreadable; keep waiting calmly
+                try:
+                    if stdscr.getch() in (ord("q"), 27):
+                        return
+                except KeyboardInterrupt:
+                    return
+                continue
+
+        reload()
+        rows = flat_rows(snap, show_archive, FILTERS[filt_i], query)
+        task_idx = [i for i, r in enumerate(rows) if r["kind"] == "task"]
+        if task_idx:
+            sel = max(0, min(sel, len(task_idx) - 1))
+        h, w = stdscr.getmaxyx()
+        stdscr.erase()
+
+        # header: project identity first, so a wrong attachment is obvious
+        for i, line in enumerate(project_header_lines(tasks_file)):
+            try:
+                stdscr.addnstr(i, 0, line, w - 1, curses.A_DIM if i else 0)
+            except curses.error:
+                pass
+        c = snap["counts"]
+        head = (f" QUEUE   {c['active']} active · {c['queued']} queued · "
+                f"{c['blocked']} blocked · {c['completed']} done · "
+                f"{c['untriaged']} untriaged")
+        try:
+            stdscr.addnstr(2, 0, head, w - 1, curses.A_BOLD)
+        except curses.error:
+            pass
+        y = 3
+        warn_bits = []
+        if snap["untriaged"]:
+            warn_bits.append(f"UNTRIAGED: {', '.join(p['prompt_id'] for p in snap['untriaged'][:4])}")
+        if snap["warnings"]:
+            warn_bits.append(snap["warnings"][0])
+        if snap.get("hook_health"):
+            warn_bits.append(f"{snap['hook_health']} hook error(s) — events.jsonl")
+        if err_note:
+            warn_bits.append(err_note)
+        if warn_bits:
+            try:
+                stdscr.addnstr(y, 0, " ⚠ " + "  ·  ".join(warn_bits), w - 1,
+                               curses.color_pair(C_WARN))
+            except curses.error:
+                pass
+            y += 1
+        status_line = f" filter:{FILTERS[filt_i]}"
+        if query:
+            status_line += f"  search:'{query}'"
+        if searching:
+            status_line += "  (typing — Enter to apply, Esc to clear)"
+        status_line += "   ? help"
+        if time.time() < flash_until and flash:
+            status_line = " " + flash
+        try:
+            stdscr.addnstr(y, 0, status_line, w - 1, curses.A_DIM)
+        except curses.error:
+            pass
+        y += 1
+
+        body_top = y
+        body_h = h - body_top - 1
+
+        # build printable lines with row refs
+        lines: list[tuple[str, int, int | None]] = []  # (text, attr, task_row_index)
+        for i, row in enumerate(rows):
+            if row["kind"] == "header":
+                lines.append((" " + row["text"], curses.A_BOLD | curses.A_DIM, None))
+            elif row["kind"] == "gap":
+                lines.append(("", 0, None))
+            else:
+                m = row["task"]
+                ti = task_idx.index(i)
+                selected = ti == sel
+                mark = {"active": "▸", "completed": ">", "blocked": "✗",
+                        "interrupted": "!", "queued": " "}.get(m["status"], " ")
+                caret = "▾" if (m["id"] in expanded) else mark
+                left = f" {caret} {badges(m)}{m['title']}"
+                right = right_meta(m)
+                avail = w - 2 - len(right) - 2
+                text = ellipsize(left, max(10, avail))
+                pad = max(1, w - 2 - len(text) - len(right))
+                line = text + " " * pad + right
+                attr = 0
+                if m["status"] == "active":
+                    attr = curses.color_pair(C_ACTIVE)
+                elif m["status"] == "completed":
+                    attr = curses.color_pair(C_DONE) | curses.A_DIM
+                elif m["status"] in ("blocked", "interrupted"):
+                    attr = curses.color_pair(C_BAD)
+                if m.get("new"):
+                    attr |= curses.A_BOLD
+                if selected:
+                    attr |= curses.A_REVERSE
+                lines.append((line, attr, ti))
+                if m["status"] == "active":
+                    prog = progress_cell(m, tick)
+                    lines.append(("   " + prog +
+                                  (f"  {snap.get('phase', '')}" if not m["determinate"] else ""),
+                                  curses.color_pair(C_ACTIVE) | curses.A_DIM, None))
+                if m["id"] in expanded:
+                    for eline in expanded_block(m, w - 6, m["id"] in tech):
+                        head = eline in ("Summary", "Verified", "Technical details",
+                                         "Blocked", "Activity")
+                        lines.append(("     " + eline,
+                                      curses.A_BOLD if head else curses.A_DIM, None))
+
+        # keep selection visible
+        sel_line = next((idx for idx, (_, _, ti) in enumerate(lines) if ti == sel), 0)
+        if sel_line < scroll:
+            scroll = sel_line
+        if sel_line >= scroll + body_h:
+            scroll = sel_line - body_h + 1
+        scroll = max(0, min(scroll, max(0, len(lines) - body_h)))
+
+        for i in range(body_h):
+            li = scroll + i
+            if li >= len(lines):
+                break
+            text, attr, _ = lines[li]
+            try:
+                stdscr.addnstr(body_top + i, 0, text, w - 1, attr)
+            except curses.error:
+                pass
+
+        if show_help:
+            draw_help(stdscr, h, w)
+
+        try:
+            stdscr.addnstr(h - 1, 0,
+                           " j/k move · ⏎ expand · t tech · / search · f filter · "
+                           "a archive · c copy · r reload · q quit",
+                           w - 1, curses.A_DIM)
+        except curses.error:
+            pass
+        stdscr.refresh()
+
+        try:
+            ch = stdscr.getch()
+        except KeyboardInterrupt:
+            return
+        if ch == -1:
+            continue
+        if searching:
+            if ch in (10, 13):
+                searching = False
+            elif ch == 27:
+                searching, query = False, ""
+            elif ch in (curses.KEY_BACKSPACE, 127, 8):
+                query = query[:-1]
+            elif 32 <= ch < 127:
+                query += chr(ch)
+            continue
+        if show_help:
+            show_help = False
+            continue
+        if ch in (ord("q"), 27):
+            return
+        if ch in (ord("j"), curses.KEY_DOWN):
+            sel += 1
+        elif ch in (ord("k"), curses.KEY_UP):
+            sel -= 1
+        elif ch in (10, 13, ord(" "), ord("e")):
+            if task_idx:
+                m = rows[task_idx[sel]]["task"]
+                if m["id"] in expanded:
+                    expanded.discard(m["id"])
+                else:
+                    expanded.add(m["id"])
+        elif ch == ord("t"):
+            if task_idx:
+                m = rows[task_idx[sel]]["task"]
+                tech.symmetric_difference_update({m["id"]})
+                expanded.add(m["id"])
+        elif ch == ord("/"):
+            searching = True
+            query = ""
+        elif ch == ord("f"):
+            filt_i = (filt_i + 1) % len(FILTERS)
+            sel = 0
+        elif ch == ord("a"):
+            show_archive = not show_archive
+        elif ch == ord("r"):
+            reload(force=True)
+        elif ch == ord("?"):
+            show_help = True
+        elif ch == ord("c"):
+            if task_idx:
+                m = rows[task_idx[sel]]["task"]
+                text = m.get("summary") or m["title"]
+                if m.get("verification"):
+                    text += "\n\nVerified: " + m["verification"]
+                if copy_to_clipboard(text):
+                    flash, flash_until = "copied to clipboard", time.time() + 2
+                else:
+                    expanded.add(m["id"])
+                    flash, flash_until = "pbcopy unavailable — summary expanded below", time.time() + 3
+        elif ch == curses.KEY_RESIZE:
+            pass
+
+
+def expanded_block(m: dict, width: int, show_tech: bool) -> list[str]:
+    out: list[str] = []
+    width = max(30, width)
+    if m["status"] == "completed":
+        out.append("Summary")
+        out.extend(wrap(m.get("summary") or "No summary recorded.", width))
+        out.append("")
+        if m.get("verification"):
+            out.append("Verified")
+            out.extend(wrap(m["verification"], width))
+            out.append("")
+        meta = f"Completed {fmt_full(m.get('completed_at'))}"
+        dur = fmt_dur(m.get("started_at"), m.get("completed_at"))
+        if dur:
+            meta += f" · Duration {dur}"
+        out.append(meta)
+    else:
+        if m.get("blocked_note"):
+            out.append("Blocked")
+            out.extend(wrap(m["blocked_note"], width))
+            out.append("")
+        if m.get("last_activity"):
+            out.append("Activity")
+            out.extend(wrap(m["last_activity"], width))
+            out.append("")
+        meta = f"Added {fmt_full(m.get('created_at'))}"
+        if m.get("started_at"):
+            meta += f" · Started {fmt_full(m.get('started_at'))}"
+        out.append(meta)
+    if m["subs"] and (show_tech or m["status"] != "completed"):
+        out.append("")
+        out.append("Technical details")
+        for s in m["subs"]:
+            box = "x" if s["mark"] == "x" else ("~" if s["mark"] == "~" else " ")
+            out.extend(wrap(f"[{box}] {s['text']}", width))
+    out.append("")
+    return out
+
+
+def draw_help(stdscr, h, w):
+    import curses
+    lines = [
+        " taskwatch help ",
+        "",
+        " j / k / arrows   move selection",
+        " Enter / Space / e  expand or collapse",
+        " t                technical details for selected task",
+        " /                search titles and summaries",
+        " f                cycle filter: all → active → queued → completed → blocked",
+        " a                toggle archived completions (>30 days)",
+        " c                copy selected summary (pbcopy)",
+        " r                force reload",
+        " q                quit",
+        "",
+        " any key to close ",
+    ]
+    bw = max(len(s) for s in lines) + 2
+    bh = len(lines) + 2
+    y0, x0 = max(0, (h - bh) // 2), max(0, (w - bw) // 2)
+    for i in range(bh):
+        try:
+            stdscr.addnstr(y0 + i, x0, " " * bw, bw, curses.A_REVERSE)
+        except curses.error:
+            pass
+    for i, s in enumerate(lines):
+        try:
+            stdscr.addnstr(y0 + 1 + i, x0 + 1, s, bw - 2, curses.A_REVERSE)
+        except curses.error:
+            pass
+
+
+def copy_to_clipboard(text: str) -> bool:
+    try:
+        p = subprocess.run(["pbcopy"], input=text.encode(), timeout=3)
+        return p.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+# ─── entry ───────────────────────────────────────────────────────────────────
+
+def main(argv: list[str]) -> int:
+    args = [a for a in argv if not a.startswith("--")]
+    flags = {a for a in argv if a.startswith("--")}
+    path = Path(args[0]).expanduser().resolve() if args else Path("TASKS.md").resolve()
+    if path.is_dir():
+        path = path / "TASKS.md"
+
+    if "--doctor" in flags:
+        return run_doctor(path)
+    if not path.exists():
+        # Stay bound to THIS project's queue; never open another project's.
+        if "--once" in flags:
+            print("\n".join(project_header_lines(path)))
+            print(f"\n {WAITING_NOTE}")
+            return 0
+        if "--json" in flags:
+            print(json.dumps({"waiting": True, "project": str(path.parent),
+                              "queue": str(path)}, indent=1))
+            return 0
+        if "--export" in flags:
+            sys.stderr.write(f"taskwatch: {path} not found\n")
+            return 1
+
+    if "--json" in flags:
+        snap = load_snapshot(path)
+        snap["project"] = str(path.parent)
+        snap["queue"] = str(path)
+        print(json.dumps(snap, indent=1, ensure_ascii=False, default=str))
+        return 0
+    if "--export" in flags:
+        print(render_export(load_snapshot(path)), end="")
+        return 0
+    if "--once" in flags:
+        print(render_once(load_snapshot(path), path), end="")
+        return 0
+
+    import curses
+    try:
+        curses.wrapper(tui, path)
+    except KeyboardInterrupt:
+        pass
+    except curses.error as exc:
+        sys.stderr.write(f"taskwatch: terminal error ({exc}); falling back to --once\n")
+        if path.exists():
+            print(render_once(load_snapshot(path, write=False), path), end="")
+        return 1
+    except Exception as exc:
+        try:
+            ql.append_event(path.parent, "hook_error", detail=f"taskwatch crash: {exc}")
+        except Exception:
+            pass
+        sys.stderr.write("taskwatch: unexpected error logged to events.jsonl; "
+                         f"compact detail: {type(exc).__name__}: {exc}\n")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
