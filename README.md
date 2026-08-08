@@ -4,11 +4,13 @@ A persistent task queue for [Claude Code](https://claude.com/claude-code) — wi
 
 > Standard-library Python. No accounts, no services, no dependencies. Your queue is a plain `TASKS.md` file in your project.
 
+![The Claude Queue tracker: active task with a progress bar, blocked, queued, and completed sections](docs/queue-overview.png)
+
 ---
 
 ## Why I built this
 
-I run big work through [Linear](https://linear.app). It's great for tracking epics and issues at the project level — the *what* and the *why* over weeks.
+I run most project work through [Linear](https://linear.app). It's great for tracking epics and issues at the project level — the *what* and the *why* over weeks.
 
 But the actual work happens in the Claude Code CLI, and two things kept biting me:
 
@@ -26,11 +28,21 @@ It's the memory layer between "the CLI firehose" and "my Linear board."
 - **`/queue` activates queue mode.** Claude works the list top-to-bottom, one task at a time, and doesn't stop until everything is done or explicitly blocked.
 - **Keep typing.** Every prompt you send while it's working is captured to a lossless inbox and folded into the queue — no dropped requests.
 - **Honest progress.** Tasks break into substeps that get checked off *as they're completed*, not all at once at the end.
-- **Readable history.** Each finished task stores a plain-English `Shipped —` / `Verified —` summary. Export the whole log any time.
-- **Live tracker.** `taskwatch TASKS.md` gives you a curses TUI: active / queued / blocked / done, priority badges, search, filter, and per-task detail.
+- **Readable history.** Each finished task stores a plain-English `Shipped —` / `Verified —` summary. Expand any completed task to read exactly what changed and how it was checked — or export the whole log.
+- **Live tracker.** A curses TUI: active / queued / blocked / done, priority badges, search, filter, and per-task detail.
 - **Crash-safe.** State is atomic and flock-protected, with an append-only event log it can rebuild from if anything gets corrupted.
 
+![A completed task expanded to show its plain-English Shipped and Verified record](docs/completion-record.png)
+
 ## The tracker
+
+Open the tracker in a second terminal pane. If you added the `qw` shortcut during install, that's all you type:
+
+```
+qw                            open the tracker for the current project
+```
+
+Under the hood `qw` is just `taskwatch TASKS.md`. The full command has a few modes:
 
 ```
 taskwatch TASKS.md            interactive TUI
@@ -78,10 +90,10 @@ In any project, start a session and run:
 /queue add the login bug, then the export feature, then update the changelog
 ```
 
-Claude turns that into tasks and starts working. In a second terminal pane:
+Claude turns that into tasks and starts working. Open a second terminal pane to watch it live:
 
 ```bash
-taskwatch TASKS.md
+qw            # the shortcut, or the full form: taskwatch TASKS.md
 ```
 
 Add more work at any time — just type it. It gets queued, not dropped.

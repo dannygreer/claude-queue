@@ -41,5 +41,9 @@ case ":$PATH:" in
 esac
 
 echo
+echo "Optional: add a 'qw' shortcut so a second terminal window just needs 'qw'"
+echo "to open the tracker for the project you're in:"
+echo "    echo \"alias qw='taskwatch TASKS.md'\" >> ~/.zshrc && source ~/.zshrc"
+echo
 echo "Done. Verify with:  $bin_dst/taskwatch --doctor"
 echo "Then, in any Claude Code session, run:  /queue"
