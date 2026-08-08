@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-taskwatch v2 — interactive terminal tracker for a TASKS.md queue.
+queue v2 — interactive terminal tracker for a queue.md queue.
 
 Usage:
-    taskwatch TASKS.md            interactive curses TUI
-    taskwatch TASKS.md --once     plain-text snapshot (for tests/logs)
-    taskwatch TASKS.md --json     JSON snapshot
-    taskwatch TASKS.md --export   Markdown completion log, newest first
-    taskwatch TASKS.md --doctor   installation & queue health checks
+    queue queue.md            interactive curses TUI
+    queue queue.md --once     plain-text snapshot (for tests/logs)
+    queue queue.md --json     JSON snapshot
+    queue queue.md --export   Markdown completion log, newest first
+    queue queue.md --doctor   installation & queue health checks
 
 Keys: j/k or arrows move · Enter/Space/e expand · t technical details ·
 / search · f filter · a archive · c copy summary · r reload · ? help · q quit
 
-Standard library only. State lives in .claude/taskwatch/ next to TASKS.md.
+Standard library only. State lives in .claude/queue/ next to queue.md.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ sys.path.insert(0, str(QL_DIR))
 try:
     import queue_lib as ql
 except ImportError:  # pragma: no cover
-    sys.stderr.write("taskwatch: queue_lib not found at %s\n" % QL_DIR)
+    sys.stderr.write("queue: queue_lib not found at %s\n" % QL_DIR)
     sys.exit(2)
 
 INDET_FRAMES = 24
@@ -98,7 +98,7 @@ def project_header_lines(tasks_file: Path) -> list[str]:
             f" Queue:   {tilde(tasks_file)}"]
 
 
-WAITING_NOTE = "Waiting for this project's TASKS.md — run /queue in Claude to create it."
+WAITING_NOTE = "Waiting for this project's queue.md — run /queue in Claude to create it."
 
 
 def ellipsize(text: str, width: int) -> str:
@@ -347,7 +347,7 @@ def run_doctor(tasks_file: Path) -> int:
         check("state directory writable", False, str(exc))
     if tasks_file.exists():
         tasks, warnings = ql.parse_tasks_md(tasks_file.read_text(encoding="utf-8", errors="replace"))
-        check("TASKS.md parses", True, f"{len(tasks)} tasks")
+        check("queue.md parses", True, f"{len(tasks)} tasks")
         check("no malformed lines", not warnings, "; ".join(warnings[:3]))
         ids = [t["id"] for t in tasks if t["id"]]
         check("no duplicate ids", len(ids) == len(set(ids)))
@@ -358,7 +358,7 @@ def run_doctor(tasks_file: Path) -> int:
         check("no unacknowledged prompts", not unacked,
               ", ".join(pid for pid, _ in unacked[:5]))
     else:
-        check("TASKS.md exists", False, str(tasks_file))
+        check("queue.md exists", False, str(tasks_file))
     print("\n" + ("all checks passed" if ok else "problems found"))
     return 0 if ok else 1
 
@@ -407,7 +407,7 @@ def tui(stdscr, tasks_file: Path):
             except Exception as exc:
                 err_note = f"reload failed: {type(exc).__name__}"
                 try:
-                    ql.append_event(project, "hook_error", detail=f"taskwatch reload: {exc}")
+                    ql.append_event(project, "hook_error", detail=f"queue reload: {exc}")
                 except Exception:
                     pass
             last_mtime, last_load = m, time.time()
@@ -694,7 +694,7 @@ def expanded_block(m: dict, width: int, show_tech: bool) -> list[str]:
 def draw_help(stdscr, h, w):
     import curses
     lines = [
-        " taskwatch help ",
+        " queue help ",
         "",
         " j / k / arrows   move selection",
         " Enter / Space / e  expand or collapse",
@@ -736,9 +736,9 @@ def copy_to_clipboard(text: str) -> bool:
 def main(argv: list[str]) -> int:
     args = [a for a in argv if not a.startswith("--")]
     flags = {a for a in argv if a.startswith("--")}
-    path = Path(args[0]).expanduser().resolve() if args else Path("TASKS.md").resolve()
+    path = Path(args[0]).expanduser().resolve() if args else Path("queue.md").resolve()
     if path.is_dir():
-        path = path / "TASKS.md"
+        path = path / "queue.md"
 
     if "--doctor" in flags:
         return run_doctor(path)
@@ -753,7 +753,7 @@ def main(argv: list[str]) -> int:
                               "queue": str(path)}, indent=1))
             return 0
         if "--export" in flags:
-            sys.stderr.write(f"taskwatch: {path} not found\n")
+            sys.stderr.write(f"queue: {path} not found\n")
             return 1
 
     if "--json" in flags:
@@ -775,16 +775,16 @@ def main(argv: list[str]) -> int:
     except KeyboardInterrupt:
         pass
     except curses.error as exc:
-        sys.stderr.write(f"taskwatch: terminal error ({exc}); falling back to --once\n")
+        sys.stderr.write(f"queue: terminal error ({exc}); falling back to --once\n")
         if path.exists():
             print(render_once(load_snapshot(path, write=False), path), end="")
         return 1
     except Exception as exc:
         try:
-            ql.append_event(path.parent, "hook_error", detail=f"taskwatch crash: {exc}")
+            ql.append_event(path.parent, "hook_error", detail=f"queue crash: {exc}")
         except Exception:
             pass
-        sys.stderr.write("taskwatch: unexpected error logged to events.jsonl; "
+        sys.stderr.write("queue: unexpected error logged to events.jsonl; "
                          f"compact detail: {type(exc).__name__}: {exc}\n")
         return 1
     return 0

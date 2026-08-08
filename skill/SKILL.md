@@ -1,6 +1,6 @@
 ---
 name: queue
-description: Activate and process a persistent TASKS.md work queue with live progress, automatic timestamps, a lossless prompt inbox, and plain-English completion summaries, until every actionable task is complete or explicitly blocked.
+description: Activate and process a persistent queue.md work queue with live progress, automatic timestamps, a lossless prompt inbox, and plain-English completion summaries, until every actionable task is complete or explicitly blocked.
 argument-hint: "[optional tasks to add]"
 disable-model-invocation: true
 disallowed-tools:
@@ -28,7 +28,7 @@ describe the workflow.
 
 ## Queue file
 
-Use `TASKS.md` in `${CLAUDE_PROJECT_DIR}` as the authoritative queue.
+Use `queue.md` in `${CLAUDE_PROJECT_DIR}` as the authoritative queue.
 
 If it does not exist, create it with this heading:
 
@@ -43,10 +43,10 @@ requests from the current user message that are not already represented.
 Do not delete completed tasks. Do not silently combine or omit distinct user
 requests. New tasks are appended to the end of the file.
 
-When this is a Git repository and `TASKS.md` is untracked, add `TASKS.md` to
+When this is a Git repository and `queue.md` is untracked, add `queue.md` to
 `.git/info/exclude` so the personal queue does not appear in Git status. Never
-untrack or exclude a `TASKS.md` file that is already committed. (The hooks
-handle `.claude/taskwatch/` exclusion automatically.)
+untrack or exclude a `queue.md` file that is already committed. (The hooks
+handle `.claude/queue/` exclusion automatically.)
 
 ## Required format
 
@@ -71,7 +71,7 @@ Use unindented top-level tasks and indented substeps:
 The hidden `<!-- queue:id=... -->` comments are stable identifiers assigned
 automatically by the hooks — never remove, invent, or duplicate them, and keep
 them on the task's line when editing a title. Timestamps are automatic; never
-type timestamps into `TASKS.md`.
+type timestamps into `queue.md`.
 
 Priority is an optional visible prefix that the tracker renders as a badge:
 
@@ -90,7 +90,7 @@ Priority is an optional visible prefix that the tracker renders as a badge:
    top-level task between completion summaries.
 3. Mark the active top-level task `[~]` before beginning.
 4. Mark each substep `[x]` immediately after it is actually complete.
-5. Re-read `TASKS.md` before selecting the next task so requests added while
+5. Re-read `queue.md` before selecting the next task so requests added while
    you were working are not missed. If a task is shown as *stale (possibly
    interrupted)* — active in a prior session with no recent activity — evaluate
    and resume it first; working on it clears the stale flag automatically.
@@ -104,7 +104,7 @@ Priority is an optional visible prefix that the tracker renders as a badge:
     add an indented `BLOCKED:` note with the exact missing information and
     continue to the next actionable task.
 11. Treat every later actionable user request in this session as queue input:
-    add it to `TASKS.md` before implementing it.
+    add it to `queue.md` before implementing it.
 12. Stop only when every top-level task is complete or every remaining
     unchecked task has an explicit indented `BLOCKED:` note, and every
     captured prompt is acknowledged.
@@ -132,7 +132,7 @@ hook asks.
 While queue mode is active, every user prompt is captured to a lossless inbox
 and you are given its prompt ID via context. For each captured prompt:
 
-1. Add its actionable requests to `TASKS.md` (append new top-level tasks), or
+1. Add its actionable requests to `queue.md` (append new top-level tasks), or
    decide it is conversational (e.g. "thanks") with no action needed.
 2. Then acknowledge it:
 
@@ -150,10 +150,10 @@ added to the queue.
 The user watches progress in a second pane with:
 
 ```bash
-~/.claude/bin/taskwatch TASKS.md
+~/.claude/bin/queue queue.md
 ```
 
-You do not need to run it. Keep `TASKS.md` accurate and the tracker takes
+You do not need to run it. Keep `queue.md` accurate and the tracker takes
 care of itself.
 
 When no actionable tasks remain, provide one concise summary containing:

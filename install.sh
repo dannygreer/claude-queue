@@ -22,28 +22,27 @@ cp "$here/skill/SKILL.md" "$skill_dst/SKILL.md"
 cp "$here/skill/scripts/"*.py "$skill_dst/scripts/"
 cp "$here/skill/tests/"*.py "$skill_dst/tests/"
 
-# Tracker
+# Tracker (queue) + launcher (qw)
 mkdir -p "$bin_dst"
-cp "$here/bin/taskwatch" "$bin_dst/taskwatch"
-chmod +x "$bin_dst/taskwatch"
+cp "$here/bin/queue" "$bin_dst/queue"
+cp "$here/bin/qw" "$bin_dst/qw"
+chmod +x "$bin_dst/queue" "$bin_dst/qw"
 
-echo "  ✓ skill    -> $skill_dst"
-echo "  ✓ taskwatch -> $bin_dst/taskwatch"
+echo "  ✓ skill  -> $skill_dst"
+echo "  ✓ queue  -> $bin_dst/queue"
+echo "  ✓ qw     -> $bin_dst/qw"
 
 # PATH hint
 case ":$PATH:" in
   *":$bin_dst:"*) : ;;
   *)
     echo
-    echo "Add ~/.claude/bin to your PATH so 'taskwatch' works anywhere:"
+    echo "Add ~/.claude/bin to your PATH so 'queue' and 'qw' work anywhere:"
     echo "    echo 'export PATH=\"\$HOME/.claude/bin:\$PATH\"' >> ~/.zshrc && source ~/.zshrc"
     ;;
 esac
 
 echo
-echo "Optional: add a 'qw' shortcut so a second terminal window just needs 'qw'"
-echo "to open the tracker for the project you're in:"
-echo "    echo \"alias qw='taskwatch TASKS.md'\" >> ~/.zshrc && source ~/.zshrc"
-echo
-echo "Done. Verify with:  $bin_dst/taskwatch --doctor"
+echo "Done. Verify with:  $bin_dst/queue --doctor"
 echo "Then, in any Claude Code session, run:  /queue"
+echo "And in a second pane for that project, run:  qw"

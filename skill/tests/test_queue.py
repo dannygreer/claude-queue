@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the /queue v2 core, hooks, and taskwatch snapshots.
+"""Tests for the /queue v2 core, hooks, and queue snapshots.
 unittest + temporary directories only."""
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 
 SCRIPTS = Path.home() / ".claude" / "skills" / "queue" / "scripts"
-TASKWATCH = Path.home() / ".claude" / "bin" / "taskwatch"
+TASKWATCH = Path.home() / ".claude" / "bin" / "queue"
 sys.path.insert(0, str(SCRIPTS))
 import queue_lib as ql  # noqa: E402
 
@@ -26,7 +26,7 @@ class TempProject(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.proj = Path(self._tmp.name)
-        self.md = self.proj / "TASKS.md"
+        self.md = self.proj / "queue.md"
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -204,7 +204,7 @@ class TestInbox(TempProject):
         self.assertFalse(st["prompts"][pid]["acked"])
         self.assertEqual(len(ql.unacked_prompts(st)), 1)
         # inbox line is verbatim
-        line = json.loads((self.proj / ".claude/taskwatch/inbox.jsonl").read_text().splitlines()[-1])
+        line = json.loads((self.proj / ".claude/queue/inbox.jsonl").read_text().splitlines()[-1])
         self.assertEqual(line["prompt"], "please also add dark mode")
         self.assertTrue(ql.ack_prompt(self.proj, pid, actionable=True))
         st = ql.load_state(self.proj)
@@ -311,7 +311,7 @@ class TestSnapshotsAndExport(TempProject):
         p = subprocess.run([sys.executable, str(TASKWATCH), str(self.md), "--doctor"],
                            capture_output=True, text=True)
         self.assertIn("skill files present", p.stdout)
-        self.assertIn("TASKS.md parses", p.stdout)
+        self.assertIn("queue.md parses", p.stdout)
 
 
 class TestRecovery(TempProject):
@@ -337,10 +337,10 @@ class TestRecovery(TempProject):
         write(self.md, "- [ ] T\n")
         self.refresh()
         exclude = (self.proj / ".git/info/exclude").read_text()
-        self.assertIn(".claude/taskwatch/", exclude)
+        self.assertIn(".claude/queue/", exclude)
         self.refresh()  # idempotent
-        self.assertEqual(exclude.count(".claude/taskwatch/"),
-                         (self.proj / ".git/info/exclude").read_text().count(".claude/taskwatch/"))
+        self.assertEqual(exclude.count(".claude/queue/"),
+                         (self.proj / ".git/info/exclude").read_text().count(".claude/queue/"))
 
 
 class TestStopLoopSafety(TempProject):

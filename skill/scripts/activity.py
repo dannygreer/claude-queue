@@ -9,7 +9,7 @@ tool_results). Also tolerates the older per-call PostToolUse payload shape
 Completely quiet: never writes to stdout. Records the recent tool mix in
 state.json so the tracker can show a conservative phase label (INVESTIGATING /
 BUILDING / VERIFYING) and a short last_activity string for the active task.
-Also reconciles TASKS.md whenever the file has changed, so timestamps are set
+Also reconciles queue.md whenever the file has changed, so timestamps are set
 promptly rather than only at Stop.
 """
 
@@ -69,7 +69,7 @@ def main() -> int:
     except Exception:
         return 0
     cwd = Path(event.get("cwd") or ".").expanduser().resolve()
-    tasks_file = cwd / "TASKS.md"
+    tasks_file = cwd / "queue.md"
     if not tasks_file.exists():
         return 0
     # PostToolBatch: {"tool_results": [{tool_name, tool_input, ...}, ...]}
@@ -100,7 +100,7 @@ def main() -> int:
                 if rec.get("status") == "active" and (
                         not session_id or rec.get("session_id") in (None, session_id)):
                     rec["last_activity"] = line
-            # reconcile when TASKS.md changed since we last looked
+            # reconcile when queue.md changed since we last looked
             h = ql.md_file_hash(tasks_file)
             if meta.get("seen_md_hash") != h:
                 meta["seen_md_hash"] = h

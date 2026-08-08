@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Claude Queue: a persistent task queue for Claude Code</title>
-<meta name="description" content="A persistent TASKS.md work queue for Claude Code, with a live terminal tracker, a lossless prompt inbox, and plain-English completion summaries." />
+<meta name="description" content="A persistent queue.md work queue for Claude Code, with a live terminal tracker, a lossless prompt inbox, and plain-English completion summaries." />
 <style>
   :root{
     --bg:#0b0f14; --panel:#121822; --ink:#e8edf4; --muted:#9aa7b8;
@@ -49,7 +49,7 @@
 <main class="wrap">
   <p class="eyebrow">for the Claude Code CLI</p>
   <h1>Claude Queue</h1>
-  <p class="lede">A persistent <code>TASKS.md</code> work queue with a live terminal tracker, a lossless prompt inbox, and plain-English "here's what I finished" summaries. Type <code>/queue</code>, keep feeding it work, and watch progress in a second pane.</p>
+  <p class="lede">A persistent <code>queue.md</code> work queue with a live terminal tracker, a lossless prompt inbox, and plain-English "here's what I finished" summaries. Type <code>/queue</code>, keep feeding it work, and watch progress in a second pane.</p>
 
   <div class="cta">
     <a class="btn primary" href="https://github.com/dannygreer/claude-queue/archive/refs/heads/main.zip">↓ Download the tool</a>
@@ -72,7 +72,7 @@
       <li><strong>Keep typing.</strong> Every prompt you send mid-session is captured to a lossless inbox and folded into the queue.</li>
       <li><strong>Honest progress.</strong> Substeps get checked off as they're completed, not all at once at the end.</li>
       <li><strong>Readable history.</strong> Each finished task stores a plain-English Shipped / Verified summary you can export.</li>
-      <li><strong>Live tracker.</strong> <code>taskwatch TASKS.md</code>, a curses TUI with search, filter, priority badges, and per-task detail.</li>
+      <li><strong>Live tracker.</strong> <code>queue queue.md</code>, a curses TUI with search, filter, priority badges, and per-task detail.</li>
       <li><strong>Crash-safe.</strong> Atomic, flock-protected state with an append-only log it can rebuild from.</li>
     </ul>
   </div>
@@ -85,7 +85,7 @@ cd claude-queue
 ./install.sh
 
 # verify, then run /queue in any Claude Code session
-taskwatch --doctor</code></pre>
+queue --doctor</code></pre>
     <p style="margin-top:14px">Requires <a href="https://claude.com/claude-code" style="color:var(--accent);text-decoration:none">Claude Code</a> in a terminal (the CLI) and Python 3.9+ on macOS or Linux. The tracker runs in a second terminal pane, so it's built for CLI use, not the desktop or web app.</p>
   </div>
 

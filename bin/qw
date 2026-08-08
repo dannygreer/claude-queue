@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+"""
+qw — open the queue tracker, permanently bound to the right project.
+
+  qw                 bind to the project containing the launch directory:
+                       1. nearest ancestor containing queue.md
+                       2. nearest ancestor containing .git
+                       3. the launch directory itself
+                     If queue.md does not exist yet, queue shows
+                     "Waiting for this project's queue.md" until /queue
+                     creates it. The remembered project is used ONLY when
+                     launched from exactly $HOME and $HOME is not a project.
+  qw /path/to/proj   explicitly open that project (dir or queue.md path)
+  qw --last          open the most recently used project
+  qw --list          list remembered projects
+  qw --forget        clear remembered projects
+
+The tracker never re-resolves or switches projects once launched: the
+queue.md path is fixed on the queue command line for the life of the
+process, and queue reads state only from <project>/.claude/queue/.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+TASKWATCH = Path(os.environ.get("QW_TASKWATCH") or Path.home() / ".claude" / "bin" / "queue")
+MEMORY = Path(os.environ.get("QW_MEMORY") or Path.home() / ".claude" / "qw-projects.json")
+
+
+# ─── remembered-project memory (selection only — never used once launched) ───
+
+def load_mem() -> dict:
+    try:
+        with open(MEMORY, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and isinstance(data.get("projects"), dict):
+            return data
+    except (OSError, ValueError):
+        pass
+    return {"projects": {}, "last": None}
+
+
+def save_mem(mem: dict) -> None:
+    MEMORY.parent.mkdir(parents=True, exist_ok=True)
+    tmp = MEMORY.with_suffix(".tmp")
+    tmp.write_text(json.dumps(mem, indent=1), encoding="utf-8")
+    os.replace(tmp, MEMORY)
+
+
+def remember(mem: dict, project: Path) -> None:
+    key = str(project)
+    mem["projects"][key] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    mem["last"] = key
+    save_mem(mem)
+
+
+# ─── local project resolution ────────────────────────────────────────────────
+
+def superset_workspace_root(start: Path) -> Path | None:
+    """If start is inside ~/.superset/projects/<name>, return that workspace dir."""
+    base = (Path.home() / ".superset" / "projects").resolve()
+    try:
+        rel = start.resolve().relative_to(base)
+    except ValueError:
+        return None
+    if not rel.parts:
+        return None
+    return base / rel.parts[0]
+
+
+def _candidate_dirs(start: Path) -> list[Path]:
+    """start and its ancestors, bounded: inside a Superset workspace stop at the
+    workspace root; under $HOME stop before $HOME (unless start IS $HOME);
+    elsewhere stop at filesystem root."""
+    start = start.resolve()
+    home = Path.home().resolve()
+    ws = superset_workspace_root(start)
+    out: list[Path] = []
+    cur = start
+    while True:
+        out.append(cur)
+        if ws is not None and cur == ws:
+            break
+        if cur.parent == cur:  # filesystem root
+            break
+        if ws is None and cur.parent == home and start != home:
+            break  # never walk up into $HOME from inside it
+        if cur == home:
+            break
+        cur = cur.parent
+    return out
+
+
+def resolve_local_project(start: Path) -> Path:
+    """Spec order: nearest ancestor with queue.md → nearest ancestor with .git
+    → Superset workspace root when inside one → the launch directory."""
+    cands = _candidate_dirs(start)
+    for d in cands:
+        if (d / "queue.md").is_file():
+            return d
+    for d in cands:
+        if (d / ".git").exists():
+            return d
+    return superset_workspace_root(start) or start.resolve()
+
+
+def is_project_dir(d: Path) -> bool:
+    return (d / "queue.md").is_file() or (d / ".git").exists()
+
+
+# ─── launch ──────────────────────────────────────────────────────────────────
+
+def open_tracker(project: Path) -> int:
+    """Exec queue bound to this project's queue.md. queue itself waits
+    for the file if it does not exist yet — never a different project's queue."""
+    tasks = project / "queue.md"
+    os.execv(str(TASKWATCH), [str(TASKWATCH), str(tasks)])
+    return 1  # pragma: no cover (execv does not return)
+
+
+def open_remembered(mem: dict, why: str) -> int:
+    last = mem.get("last")
+    if not last:
+        print(f"qw: {why}, and no remembered project.\n"
+              "Run `qw` from inside a project, or `qw /path/to/project`.", file=sys.stderr)
+        return 1
+    project = Path(last)
+    if not project.is_dir():
+        print(f"qw: remembered project {project} no longer exists.\n"
+              "Use `qw --list` / `qw --forget`, or `qw /path/to/project`.", file=sys.stderr)
+        return 1
+    remember(mem, project)  # refresh recency
+    return open_tracker(project)
+
+
+def main(argv: list[str]) -> int:
+    mem = load_mem()
+
+    if "--help" in argv or "-h" in argv:
+        print(__doc__.strip())
+        return 0
+
+    if "--list" in argv:
+        if not mem["projects"]:
+            print("No project queues remembered yet.")
+            return 0
+        items = sorted(mem["projects"].items(), key=lambda kv: kv[1], reverse=True)
+        for path, ts in items:
+            marker = " *" if path == mem.get("last") else ""
+            print(f"{ts}  {path}{marker}")
+        return 0
+
+    if "--forget" in argv:
+        save_mem({"projects": {}, "last": None})
+        print("Forgotten all remembered project queues.")
+        return 0
+
+    if "--last" in argv:
+        return open_remembered(mem, "--last requested")
+
+    args = [a for a in argv if not a.startswith("-")]
+    if args:
+        target = Path(args[0]).expanduser().resolve()
+        if target.name == "queue.md":
+            target = target.parent
+        if not target.is_dir():
+            print(f"qw: {target} is not a directory", file=sys.stderr)
+            return 1
+        remember(mem, target)
+        return open_tracker(target)
+
+    # Plain qw: bind permanently to the launch directory's project.
+    cwd = Path.cwd().resolve()
+    home = Path.home().resolve()
+    if cwd == home and not is_project_dir(home):
+        # The ONLY case where the remembered project may be used.
+        return open_remembered(mem, "launched from $HOME")
+
+    project = resolve_local_project(cwd)
+    remember(mem, project)
+    return open_tracker(project)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

@@ -3,14 +3,14 @@
 queue_lib — shared core for the /queue skill v2.
 
 Used by the skill hooks (check_queue.py, prompt_capture.py, activity.py,
-ack_prompt.py) and by ~/.claude/bin/taskwatch. Standard library only.
+ack_prompt.py) and by ~/.claude/bin/queue. Standard library only.
 
 Responsibilities:
-  - parse TASKS.md (top-level tasks, substeps, hidden stable IDs, priority,
+  - parse queue.md (top-level tasks, substeps, hidden stable IDs, priority,
     BLOCKED notes) without disturbing anything else in the file
   - assign missing stable IDs atomically
-  - maintain .claude/taskwatch/state.json (atomic, flock-protected)
-  - append .claude/taskwatch/events.jsonl (audit log) and inbox.jsonl
+  - maintain .claude/queue/state.json (atomic, flock-protected)
+  - append .claude/queue/events.jsonl (audit log) and inbox.jsonl
   - reconcile markdown truth with state: status transitions + timestamps
   - extract "Shipped —" / "Verified —" completion summaries
   - build display snapshots (ordering, sections, archive) for the tracker
@@ -27,7 +27,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-STATE_DIR_NAME = os.path.join(".claude", "taskwatch")
+STATE_DIR_NAME = os.path.join(".claude", "queue")
 ARCHIVE_DAYS = 30
 NEW_BADGE_MINUTES = 10
 INTERRUPT_STALE_SECONDS = 15 * 60
@@ -88,11 +88,11 @@ def ensure_state_dir(project_dir: Path) -> Path:
 
 
 def _ensure_git_exclude(project_dir: Path) -> None:
-    """Add .claude/taskwatch/ to .git/info/exclude (never the committed .gitignore)."""
+    """Add .claude/queue/ to .git/info/exclude (never the committed .gitignore)."""
     git = project_dir / ".git"
     if not git.is_dir():
         return
-    pattern = ".claude/taskwatch/"
+    pattern = ".claude/queue/"
     exclude = git / "info" / "exclude"
     try:
         existing = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
@@ -252,7 +252,7 @@ def rebuild_state_from_events(project_dir: Path) -> dict:
     return st
 
 
-# ─── TASKS.md parsing ────────────────────────────────────────────────────────
+# ─── queue.md parsing ────────────────────────────────────────────────────────
 
 def parse_tasks_md(text: str) -> tuple[list[dict], list[str]]:
     """Return (tasks, warnings). Each task:
@@ -311,7 +311,7 @@ def ensure_ids(project_dir: Path, tasks_file: Path) -> tuple[list[dict], list[st
     try:
         text = tasks_file.read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return [], ["TASKS.md unreadable"], False
+        return [], ["queue.md unreadable"], False
     tasks, warnings = parse_tasks_md(text)
     lines = text.splitlines()
     seen: set[str] = set()
@@ -611,7 +611,7 @@ def refresh(project_dir: Path, tasks_file: Path, session_id: str | None = None,
             try:
                 tasks, warnings = parse_tasks_md(tasks_file.read_text(encoding="utf-8", errors="replace"))
             except OSError:
-                return [], default_state(), ["TASKS.md unreadable"]
+                return [], default_state(), ["queue.md unreadable"]
         st = load_state(project_dir)
         reconcile(project_dir, tasks, st, session_id=session_id)
         if write:

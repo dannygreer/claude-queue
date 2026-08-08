@@ -3,7 +3,7 @@
 UserPromptSubmit hook for the /queue skill v2 — the lossless prompt inbox.
 
 Every prompt typed while queue mode is active is appended verbatim to
-.claude/taskwatch/inbox.jsonl with a generated prompt ID, and Claude is told
+.claude/queue/inbox.jsonl with a generated prompt ID, and Claude is told
 the ID via quiet additionalContext so it can triage and acknowledge it.
 """
 
@@ -42,7 +42,7 @@ def main() -> int:
             "hookEventName": "UserPromptSubmit",
             "additionalContext": (
                 f"[queue] Prompt captured as {pid}. After adding its actionable "
-                f"requests to TASKS.md (or deciding it is conversational), run: "
+                f"requests to queue.md (or deciding it is conversational), run: "
                 f"python3 {ack} {pid} [--non-actionable]. Do not create tasks for "
                 "pure acknowledgments like 'thanks'."
             ),

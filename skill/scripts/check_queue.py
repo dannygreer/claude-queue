@@ -3,7 +3,7 @@
 Stop hook for the /queue skill v2.
 
 On every Stop:
-  1. Reconcile TASKS.md with .claude/taskwatch/state.json (auto IDs, automatic
+  1. Reconcile queue.md with .claude/queue/state.json (auto IDs, automatic
      timestamps, event log).
   2. Capture completion summaries: when a task has just transitioned to [x],
      the final assistant message must contain "Shipped — …" and "Verified — …".
@@ -69,10 +69,10 @@ def main() -> int:
 
     cwd = Path(event.get("cwd") or ".").expanduser().resolve()
     session_id = event.get("session_id")
-    tasks_file = cwd / "TASKS.md"
+    tasks_file = cwd / "queue.md"
 
     if not tasks_file.exists():
-        block("Queue mode is active, but TASKS.md does not exist. Create TASKS.md "
+        block("Queue mode is active, but queue.md does not exist. Create queue.md "
               "in the project root, capture the user's actionable requests as "
               "top-level checklist items, and begin processing them.")
         return 0
@@ -148,7 +148,7 @@ def main() -> int:
             if len(actionable) > 8:
                 shown += f"; and {len(actionable) - 8} more"
             parts.append(
-                "Queue mode is still active. Re-read TASKS.md and continue working "
+                "Queue mode is still active. Re-read queue.md and continue working "
                 f"without asking whether to proceed. Actionable tasks remain: {shown}. "
                 "Work one task at a time, keep checkbox state current, and end each "
                 "completed task with the Shipped/Verified summary."
@@ -157,7 +157,7 @@ def main() -> int:
             ids = ", ".join(pid for pid, _ in unacked[:6])
             parts.append(
                 f"{len(unacked)} captured prompt(s) are not yet triaged ({ids}). For "
-                "each: add its actionable requests to TASKS.md, then run "
+                "each: add its actionable requests to queue.md, then run "
                 f"python3 {Path(__file__).parent / 'ack_prompt.py'} <prompt_id> "
                 "(or --non-actionable for conversational messages). The queue is "
                 "not finished while a prompt is untriaged."
