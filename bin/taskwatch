@@ -233,13 +233,28 @@ def progress_cell(m: dict, tick: int, width: int = 22) -> str:
     if m["determinate"]:
         total, done = m["subs_total"], m["subs_done"]
         fill = int(width * done / total) if total else 0
-        return f"[{'█' * fill}{'░' * (width - fill)}] {done}/{total}"
+        return f"[{'█' * fill}{'░' * (width - fill)}]"
     pos = tick % INDET_FRAMES
     cells = ["░"] * width
     for off in range(4):
         idx = (pos * width // INDET_FRAMES + off) % width
         cells[idx] = "█"
     return "[" + "".join(cells) + "]"
+
+
+def current_substep(m: dict) -> str:
+    for s in m.get("subs", []):
+        if s["mark"] != "x":
+            return s["text"]
+    return ""
+
+
+def active_hint(m: dict, snap: dict) -> str:
+    if m["determinate"]:
+        cnt = f"{m['subs_done']}/{m['subs_total']}"
+        sub = current_substep(m)
+        return f"{sub} · {cnt}" if sub else cnt
+    return snap.get("phase", "")
 
 
 # ─── --once / --json / --export / --doctor ──────────────────────────────────
@@ -274,7 +289,8 @@ def render_once(snap: dict, tasks_file: Path, width: int = 100) -> str:
             if m["status"] == "active":
                 prog = progress_cell(m, 0)
                 if prog:
-                    out.append("   " + prog)
+                    hint = active_hint(m, snap)
+                    out.append("   " + prog + (f"   {hint}" if hint else ""))
     return "\n".join(out).rstrip() + "\n"
 
 
@@ -493,9 +509,9 @@ def tui(stdscr, tasks_file: Path):
         lines: list[tuple[str, int, int | None]] = []  # (text, attr, task_row_index)
         for i, row in enumerate(rows):
             if row["kind"] == "header":
-                lines.append((" " + row["text"], curses.A_BOLD | curses.A_DIM, None))
+                lines.append((" " + row["text"], curses.A_BOLD | curses.A_DIM, None, None))
             elif row["kind"] == "gap":
-                lines.append(("", 0, None))
+                lines.append(("", 0, None, None))
             else:
                 m = row["task"]
                 ti = task_idx.index(i)
@@ -520,21 +536,27 @@ def tui(stdscr, tasks_file: Path):
                     attr |= curses.A_BOLD
                 if selected:
                     attr |= curses.A_REVERSE
-                lines.append((line, attr, ti))
+                ov = None
+                btxt = badges(m).rstrip()
+                if btxt and not selected:
+                    battr = curses.color_pair(C_BAD if m["priority"] == "urgent"
+                                              else C_WARN) | curses.A_BOLD
+                    ov = (3, btxt, battr)
+                lines.append((line, attr, ti, ov))
                 if m["status"] == "active":
                     prog = progress_cell(m, tick)
-                    lines.append(("   " + prog +
-                                  (f"  {snap.get('phase', '')}" if not m["determinate"] else ""),
-                                  curses.color_pair(C_ACTIVE) | curses.A_DIM, None))
+                    hint = active_hint(m, snap)
+                    lines.append(("   " + prog + (f"   {hint}" if hint else ""),
+                                  curses.color_pair(C_ACTIVE) | curses.A_DIM, None, None))
                 if m["id"] in expanded:
                     for eline in expanded_block(m, w - 6, m["id"] in tech):
                         head = eline in ("Summary", "Verified", "Technical details",
                                          "Blocked", "Activity")
                         lines.append(("     " + eline,
-                                      curses.A_BOLD if head else curses.A_DIM, None))
+                                      curses.A_BOLD if head else curses.A_DIM, None, None))
 
         # keep selection visible
-        sel_line = next((idx for idx, (_, _, ti) in enumerate(lines) if ti == sel), 0)
+        sel_line = next((idx for idx, (_, _, ti, _ov) in enumerate(lines) if ti == sel), 0)
         if sel_line < scroll:
             scroll = sel_line
         if sel_line >= scroll + body_h:
@@ -545,9 +567,12 @@ def tui(stdscr, tasks_file: Path):
             li = scroll + i
             if li >= len(lines):
                 break
-            text, attr, _ = lines[li]
+            text, attr, _, ov = lines[li]
             try:
                 stdscr.addnstr(body_top + i, 0, text, w - 1, attr)
+                if ov:
+                    ox, otext, oattr = ov
+                    stdscr.addnstr(body_top + i, ox, otext, max(0, w - 1 - ox), oattr)
             except curses.error:
                 pass
 

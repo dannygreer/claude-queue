@@ -1,6 +1,6 @@
 # Claude Queue
 
-A persistent task queue for [Claude Code](https://claude.com/claude-code) — with a live terminal tracker, a lossless prompt inbox, and plain-English "here's what I finished" summaries. Type `/queue`, keep feeding it work, and watch progress in a second pane.
+A persistent `TASKS.md` work queue for [Claude Code](https://claude.com/claude-code). It gives you a live terminal tracker, a prompt inbox that never drops a request, and a plain-English record of everything that gets finished. Type `/queue`, keep feeding it work, and watch it go in a second pane.
 
 > Standard-library Python. No accounts, no services, no dependencies. Your queue is a plain `TASKS.md` file in your project.
 
@@ -8,27 +8,22 @@ A persistent task queue for [Claude Code](https://claude.com/claude-code) — wi
 
 ---
 
-## Why I built this
+## How this is different from an issue tracker
 
-I run most project work through [Linear](https://linear.app). It's great for tracking epics and issues at the project level — the *what* and the *why* over weeks.
+Issue trackers like Linear, Plane, or Jira manage the big picture: epics and issues you plan over days and weeks. Keep doing that where you already do it.
 
-But the actual work happens in the Claude Code CLI, and two things kept biting me:
+Claude Queue works at a different altitude. It lives inside a single Claude Code session, where you pound tasks into the agent as fast as you think of them. It keeps a running list so nothing you asked for gets dropped, and every finished task leaves a short note on what changed, so you can look back and see what actually got done.
 
-1. **I'd lose the thread of what had actually been done.** A long session would scroll past, tasks would get finished, and by the end I couldn't easily reconstruct what shipped versus what I'd only talked about. The CLI is a river; Linear is too coarse to catch the day-to-day.
-2. **I like to keep feeding Claude tasks while it's still working.** I don't want to wait for it to finish before I add the next three things I just thought of. But new requests mid-flight are easy to drop — for me *and* for the agent.
-
-So I built Claude Queue. It turns a `TASKS.md` into a real work queue: every task gets a stable ID and automatic timestamps, every prompt you send mid-session is captured to an inbox so nothing you ask gets silently dropped, and every completed task ends with a short **Shipped / Verified** record you can actually read back later. A live tracker in a second pane shows exactly what's active, queued, blocked, and done.
-
-It's the memory layer between "the CLI firehose" and "my Linear board."
+The point is to stay in flow. You keep firing ideas at Claude instead of babysitting a checklist or scrolling back to figure out where things landed.
 
 ---
 
 ## What it does
 
 - **`/queue` activates queue mode.** Claude works the list top-to-bottom, one task at a time, and doesn't stop until everything is done or explicitly blocked.
-- **Keep typing.** Every prompt you send while it's working is captured to a lossless inbox and folded into the queue — no dropped requests.
+- **Keep typing.** Every prompt you send while it's working is captured to a lossless inbox and folded into the queue, so nothing gets dropped.
 - **Honest progress.** Tasks break into substeps that get checked off *as they're completed*, not all at once at the end.
-- **Readable history.** Each finished task stores a plain-English `Shipped —` / `Verified —` summary. Expand any completed task to read exactly what changed and how it was checked — or export the whole log.
+- **Readable history.** Each finished task stores a plain-English `Shipped —` / `Verified —` summary. Expand any completed task to read exactly what changed and how it was checked, or export the whole log.
 - **Live tracker.** A curses TUI: active / queued / blocked / done, priority badges, search, filter, and per-task detail.
 - **Crash-safe.** State is atomic and flock-protected, with an append-only event log it can rebuild from if anything gets corrupted.
 
@@ -77,7 +72,7 @@ taskwatch --doctor      # or: ~/.claude/bin/taskwatch --doctor
 ### Requirements
 
 - [Claude Code](https://claude.com/claude-code)
-- Python 3.9+ (standard library only — nothing to `pip install`)
+- Python 3.9+ (standard library only, nothing to `pip install`)
 - macOS or Linux (uses `fcntl` file locking)
 
 ---
@@ -96,7 +91,7 @@ Claude turns that into tasks and starts working. Open a second terminal pane to 
 qw            # the shortcut, or the full form: taskwatch TASKS.md
 ```
 
-Add more work at any time — just type it. It gets queued, not dropped.
+Add more work at any time. Just type it, and it gets queued, not dropped.
 
 The queue lives in `TASKS.md` at your project root. Tracker state lives in `.claude/taskwatch/` next to it (auto-excluded from Git via `.git/info/exclude`, so it never clutters your commits).
 
@@ -118,7 +113,7 @@ All three share `queue_lib.py`, which also backs `taskwatch`. `TASKS.md` is the 
 
 ## Build it yourself
 
-Prefer to grow your own version (or have Claude Code build it for you) instead of installing this one? The full design spec and a copy-paste build brief are in **[docs/BUILD.md](docs/BUILD.md)** — architecture, the `TASKS.md` format, the hook contracts, and the invariants that keep it crash-safe.
+Prefer to grow your own version (or have Claude Code build it for you) instead of installing this one? The full design spec and a copy-paste build brief are in **[docs/BUILD.md](docs/BUILD.md)**: the architecture, the `TASKS.md` format, the hook contracts, and the invariants that keep it crash-safe.
 
 ---
 

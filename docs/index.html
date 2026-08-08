@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Claude Queue — a persistent task queue for Claude Code</title>
+<title>Claude Queue: a persistent task queue for Claude Code</title>
 <meta name="description" content="A persistent TASKS.md work queue for Claude Code, with a live terminal tracker, a lossless prompt inbox, and plain-English completion summaries." />
 <style>
   :root{
@@ -56,13 +56,13 @@
     <a class="btn ghost" href="https://github.com/dannygreer/claude-queue/blob/main/docs/BUILD.md">Build it yourself</a>
     <a class="btn ghost" href="https://github.com/dannygreer/claude-queue">View on GitHub</a>
   </div>
-  <p class="note">Standard-library Python. No accounts, no services, no dependencies — your queue is a plain Markdown file in your project.</p>
+  <p class="note">Standard-library Python. No accounts, no services, no dependencies. Your queue is a plain Markdown file in your project.</p>
 
   <img src="queue-overview.png" alt="The Claude Queue tracker showing active, blocked, queued, and completed tasks" style="width:100%;height:auto;border-radius:14px;border:1px solid var(--line);margin:8px 0 30px" />
 
   <div class="card">
-    <h2>Why it exists</h2>
-    <p class="why">I run most project work through Linear — great for epics and the <em>why</em> over weeks. But the actual work happens in the CLI, and I kept losing the thread of what had <em>actually</em> shipped in a long session. I also like to keep feeding Claude new tasks while it's still working, and those mid-flight requests were easy to drop. Claude Queue is the memory layer between the CLI firehose and the Linear board: nothing you ask gets lost, and every finished task leaves a readable record.</p>
+    <h2>How this is different from an issue tracker</h2>
+    <p class="why">Issue trackers like Linear, Plane, or Jira manage the big picture: epics and issues you plan over days and weeks. Claude Queue works at a different altitude. It lives inside a single Claude Code session, where you pound tasks into the agent as fast as you think of them. It keeps a running list so nothing you asked for gets dropped, and every finished task leaves a short note on what changed. The point is to stay in flow: keep firing ideas at Claude instead of babysitting a checklist or scrolling back to see where things landed.</p>
   </div>
 
   <div class="card">
@@ -70,16 +70,16 @@
     <ul class="feat">
       <li><strong>/queue activates queue mode.</strong> Claude works the list one task at a time until it's done or blocked.</li>
       <li><strong>Keep typing.</strong> Every prompt you send mid-session is captured to a lossless inbox and folded into the queue.</li>
-      <li><strong>Honest progress.</strong> Substeps get checked off as they're completed — not all at once at the end.</li>
+      <li><strong>Honest progress.</strong> Substeps get checked off as they're completed, not all at once at the end.</li>
       <li><strong>Readable history.</strong> Each finished task stores a plain-English Shipped / Verified summary you can export.</li>
-      <li><strong>Live tracker.</strong> <code>taskwatch TASKS.md</code> — a curses TUI with search, filter, priority badges, and per-task detail.</li>
+      <li><strong>Live tracker.</strong> <code>taskwatch TASKS.md</code>, a curses TUI with search, filter, priority badges, and per-task detail.</li>
       <li><strong>Crash-safe.</strong> Atomic, flock-protected state with an append-only log it can rebuild from.</li>
     </ul>
   </div>
 
   <div class="card">
     <h2>Install</h2>
-    <p>Clone and run the installer — it copies the skill into <code>~/.claude</code> and the tracker onto your path.</p>
+    <p>Clone and run the installer. It copies the skill into <code>~/.claude</code> and the tracker onto your path.</p>
     <pre><code>git clone https://github.com/dannygreer/claude-queue.git
 cd claude-queue
 ./install.sh
